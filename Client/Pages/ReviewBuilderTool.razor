@@ -1,0 +1,307 @@
+﻿@page "/create-review/{id}"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using System.Security.Claims;
+@using totten_romatoes.Client.Shared.Components.ReviewBuilder;
+@using totten_romatoes.Client.Shared.Components.Localization;
+
+<MudContainer Class="mt-16" MaxWidth="MaxWidth.Large">
+    <MudGrid Spacing="4" Class="mt-16" Justify="Justify.Center">
+        <MudItem  xs="12" lg="10">
+            <MudPaper Class="pa-10" Elevation="3">
+                <EditForm Model="@_review" OnValidSubmit="@PublishOrUpdateReview">
+                    <DataAnnotationsValidator/>
+                    <MudText Typo="Typo.h5" Align="Align.Center" GutterBottom="true">@_loc["Create new review"]</MudText>
+                    <MudGrid>
+                        <MudItem xs="12">
+                            <MudTextField T="string" @bind-Value="_review.Subject.Name" For="@(() => _review.Subject.Name)" Immediate="true" Variant="Variant.Outlined" Label="@_loc["Subject of review"]" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudTextField T="string" @bind-Value="_review.Title" For="@(() => _review.Title)" Immediate="true" Variant="Variant.Outlined" Label="@_loc["Title"]" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect @bind-Value="_review.ReviewCategory" Label="@_loc["Category"]" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+                                @foreach (Category category in Enum.GetValues(typeof(Category)))
+                                {
+                                    <MudSelectItem Value="@category">@_sharedLoc[category.ToString()]</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem   xs="12" sm="6">
+                            <MudText Class="flex"  Align="Align.Center" >@_loc["Rate the subject:"]</MudText>
+                            <div Class="d-flex justify-center">
+                                <MudHidden  Breakpoint="Breakpoint.LgAndUp" Invert="true">
+                                    <MudRating    @bind-SelectedValue="_review.AuthorGrade" Size="Size.Large" MaxValue="10" />
+                                </MudHidden>
+                                <MudHidden Breakpoint="Breakpoint.MdAndDown" Invert="true">
+                                    <MudRating    @bind-SelectedValue="_review.AuthorGrade" Size="Size.Medium" MaxValue="10" />
+                                </MudHidden>
+                            </div>
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudGrid>
+                                @if(_review.Tags != null)
+                                {
+                                    <MudItem xs="12">
+                                        @foreach (TagModel tag in _review.Tags)
+                                        {
+                                            <MudChip OnClose="@(() => RemoveTag(tag))">@tag.Name</MudChip>
+                                        }
+                                    </MudItem>
+                                }
+                                <MudItem Class="d-flex align-center justify-end" xs="12">
+                                    <MudAutocomplete T="TagModel" Converter="_tagConverter" ToStringFunc="@(e=> e==null?null : e.Name)" Label="@_loc["Choose tag"]" For="@(() => _tagFieldValue)" CoerceValue="true"  @bind-Value="@_tagFieldValue" SearchFunc="@Search1" Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search"/>
+                                    <MudButton Class="mx-2 mt-3" Variant="Variant.Filled" OnClick="@AddTag" Disabled="@(_tagFieldValue == null || _tagFieldValue.Name.Length == 0 || !IsTagValid())" DisableElevation="true" Size="Size.Large" Color="Color.Info" >@_loc["add"]</MudButton>
+                                </MudItem>
+                            </MudGrid>
+                        </MudItem>
+                        @if(Id.Equals("0")){
+                            <MudItem xs="12">
+                                <MudFileUpload  T="IBrowserFile"  OnFilesChanged="OnInputFileChanged" Hidden="false"  Class="d-flex mud-width-full " InputClass="d-flex absolute mud-height-full mud-width-full overflow-hidden z-20" InputStyle="opacity:0"
+                                    @ondragenter="@SetDragClass"  @ondragleave="@ClearDragClass" @ondragend="@ClearDragClass" Error="@_isImageUploadFileNotValid" ErrorText="@_imageErrorText">
+                                    <ButtonTemplate Context="upload_file_context">
+                                        <MudPaper  Outlined="true" Class="@DragClass">
+                                            @if (_reviewImage != null)
+                                            {
+                                                <MudChip Color="Color.Dark" Text="@_reviewImage.Name" />
+                                            }
+                                            else
+                                            {
+                                                <MudText Typo="Typo.h6">@_loc["Drag here image (optional)"]</MudText>
+                                            }
+                                        </MudPaper>
+                                    </ButtonTemplate>
+                                </MudFileUpload>
+                                <MudToolBar DisableGutters="true">
+                                    <MudButton Class="ml-auto " OnClick="Clear" Disabled="@(_reviewImage == null)" Color="Color.Error" Variant="Variant.Filled">@_loc["Clear"]</MudButton>
+                                </MudToolBar>
+                            </MudItem>
+                        }
+                        <MudItem xs="12" >
+                            <MarkDownEditor SetReviewBody="SetReviewBody" Id="@Id" ReviewBodyToUpdate="@_review.ReviewBody" />
+                        </MudItem >
+                        <MudItem xs="12">
+                            <ValidationSummary/>
+                        </MudItem>
+                        <MudItem Class="d-flex justify-end align-end" xs="12">
+                            @if (_isPublishingInProcess)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true"/>
+                            }
+                            else
+                            {
+                                @if(Id.Equals("0")){
+                                    <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" DisableElevation="true" Size="Size.Large" Color="Color.Primary" >@_loc["Publish"]</MudButton>
+                                }else{
+                                    <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" DisableElevation="true" Size="Size.Large" Color="Color.Tertiary" >@_loc["Update"]</MudButton>
+                                }
+                            }
+                        </MudItem>
+                        @if (_isPublishActionFired)
+                        {
+                            @if (_isPublishWasSuccesful)
+                            {
+                                <MudText Color="Color.Success">@_loc["Your review published!"]</MudText>
+                            }
+                            else
+                            {
+                                <MudText Color="Color.Error">@_loc["Error"]</MudText>
+                            }
+                        }
+                    </MudGrid>
+                </EditForm>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+    [Inject]
+    private HttpClient _httpClient { get; set; } = null!;
+    [Inject]
+    private AuthenticationStateProvider _authenticationStateProvider { get; set; } = null!;
+    [Inject]
+    private IStringLocalizer<ReviewBuilderTool> _loc { get; set; }  = null!;
+    [Inject]
+    private IStringLocalizer<SharedLocalization> _sharedLoc { get; set; } = null!;
+    [Inject]
+    private NavigationManager _nav { get; set; } = null!;
+    private static string DefaultDragClass = "rounded-lg px-2 py-7 mud-height-full border-2 border-dashed z-10";
+    private string DragClass = DefaultDragClass;
+    private ReviewModel _review = new();
+    private TagModel _tagFieldValue = new();
+    private IBrowserFile? _reviewImage { get; set; }
+    private bool _isPublishingInProcess = false;
+    private bool _isPublishActionFired = false;
+    private bool _isPublishWasSuccesful = false;
+    private bool _isImageUploadFileNotValid = false;
+    private string _userId = string.Empty;
+    private string _imageErrorText = $"You can upload {Constants.IMAGE_FORMAT} image with size less then {Constants.MAX_IMAGE_SIZE / 1000000} mb";
+    private MudBlazor.Converter<TagModel, string> _tagConverter = new Converter<TagModel>
+        {
+            SetFunc = value => value.Name,
+            GetFunc = text => new TagModel { Name = text }
+        };
+
+    protected async override Task OnParametersSetAsync()
+    {
+        if(!Id.Equals("0"))
+        {
+            if (Id.StartsWith("asUser="))
+            {
+                _userId = Id.Substring("asUser=".Length);
+                Id = "0";
+                InitEmptyReview();
+            }
+            else
+            {
+                var authState = await _authenticationStateProvider!.GetAuthenticationStateAsync();
+                var user = authState.User;
+                _userId = user.FindFirstValue("sub");
+                _review = await _httpClient.GetFromJsonAsync<ReviewModel>($"{Constants.REVIEWS_URL}/{Id}") ?? new();
+                if (_userId != _review!.AuthorId && !user.IsInRole("Admin"))
+                {
+                    _nav.NavigateTo("/");
+                }
+            }
+        }
+        else
+        {
+            _userId = await GetUserId();
+            InitEmptyReview();
+        }
+        await base.OnInitializedAsync();
+    }
+
+    public async Task PublishOrUpdateReview()
+    {
+        if(Id.Equals("0")){
+            await PublishNewReview();
+        }
+        else
+        {
+            await UpdateExistingReview();
+        }
+    }
+
+    public async Task UpdateExistingReview()
+    {
+        _isPublishingInProcess = true;
+        _review.DateOfCreationInUTC = DateTime.UtcNow;
+        HttpResponseMessage response = await _httpClient!.PutAsJsonAsync<ReviewModel>(Constants.REVIEWS_URL, _review);
+        _isPublishWasSuccesful = response.IsSuccessStatusCode;
+        _isPublishingInProcess = false;
+        _isPublishActionFired = true;
+    }
+
+    public async Task PublishNewReview()
+    {
+        _isPublishingInProcess = true;
+        _review.ReviewImage = await GenerateImageModelIfImageUploaded();
+        _review.DateOfCreationInUTC = DateTime.UtcNow;
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync<ReviewModel>(Constants.REVIEWS_URL, _review);
+        _isPublishWasSuccesful = response.IsSuccessStatusCode;
+        _isPublishingInProcess = false;
+        if(_isPublishWasSuccesful)
+            InitEmptyReview();
+        _isPublishActionFired = true;
+    }
+
+
+    private void InitEmptyReview()
+    {
+        _review = new();
+        _review.AuthorId = _userId;
+    }
+
+    private async Task<string> GetUserId()
+    {
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        return user.FindFirstValue("sub");
+    }
+
+    public async Task<ImageModel> GenerateImageModelIfImageUploaded()
+    {
+        if (_reviewImage == null)
+            return null;
+        var buffer = new byte[_reviewImage.Size];
+        await _reviewImage.OpenReadStream(Constants.MAX_IMAGE_SIZE).ReadAsync(buffer);
+        ImageModel image = new ImageModel();
+        image.ImageType = _reviewImage.ContentType;
+        image.ImageName = _reviewImage.Name;
+        image.ImageData = buffer;
+        return image;
+    }
+
+    private void AddTag()
+    {
+        if (_review.Tags == null)
+            _review.Tags = new();
+        var addedTagNames = _review.Tags.Select(t => t.Name);
+        if (IsTagValid() && _tagFieldValue.Name.Length > 0 && !addedTagNames.Contains(_tagFieldValue.Name))
+        {
+            _tagFieldValue.Name = _tagFieldValue.Name.Trim();
+            _review.Tags.Add(_tagFieldValue);
+        }
+        _tagFieldValue = new();
+    }
+
+    private bool IsTagValid()
+    {
+        return _tagFieldValue.Name.Length >= Constants.MIN_TAG_LENGTH && _tagFieldValue.Name.Length <= Constants.MAX_TAG_LENGTH;
+    }
+
+    private void RemoveTag(TagModel tagToRemove)
+    {
+        if(_review.Tags != null)
+            _review.Tags.Remove(tagToRemove);
+    }
+
+    public void SetReviewBody(string reviewBody)
+    {
+        _review.ReviewBody = reviewBody;
+        StateHasChanged();
+    }
+
+    private void OnInputFileChanged(InputFileChangeEventArgs e)
+    {
+        IBrowserFile uploadedFile = e.File;
+        if (!uploadedFile.ContentType.Equals(Constants.IMAGE_FORMAT) || uploadedFile.Size > (Constants.MAX_IMAGE_SIZE))
+        {
+            _isImageUploadFileNotValid = true;
+            DragClass = $"{DefaultDragClass} mud-border-error";
+            return;
+        }
+        _isImageUploadFileNotValid = false;
+        ClearDragClass();
+        _reviewImage = e.File;
+    }
+
+    private async Task Clear()
+    {
+        _reviewImage = null;
+        _isImageUploadFileNotValid = false;
+        ClearDragClass();
+        await Task.Delay(100);
+    }
+
+    private void SetDragClass()
+    {
+        DragClass = $"{DefaultDragClass} mud-border-primary";
+    }
+
+    private void ClearDragClass()
+    {
+        DragClass = DefaultDragClass;
+    }
+
+    public async Task<IEnumerable<TagModel>> Search1(string value)
+    {
+        var response = await _httpClient!.GetFromJsonAsync<IEnumerable<TagModel>>($"{Constants.TAG_SEARCH_URL}/{value}") ?? new List<TagModel> ();
+        return response;
+    }
+}
